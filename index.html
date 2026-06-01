@@ -10,11 +10,13 @@
         #map { height: 600px; margin: 20px; }
         body { font-family: Arial, sans-serif; }
         .legend { background: white; padding: 10px; margin: 10px; border-radius: 5px; }
+        #status { background: #f0f0f0; padding: 10px; margin: 20px; border-radius: 5px; font-family: monospace; }
     </style>
 </head>
 <body>
     <h2>Frog Census Observations</h2>
     <div id="map"></div>
+    <div id="status">Loading map...</div>
     <div class="legend" id="legend"></div>
 
     <script>
@@ -24,11 +26,34 @@
             attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OSM</a>'
         }).addTo(map);
 
+        document.getElementById('status').innerHTML = 'Loading GeoJSON file...';
+
         // Load your GeoJSON file
         fetch('frog_census.geojson')
-            .then(response => response.json())
+            .then(response => {
+                if (!response.ok) {
+                    throw new Error(`HTTP error! Status: ${response.status} - File not found or inaccessible`);
+                }
+                return response.json();
+            })
             .then(data => {
-                L.geoJSON(data, {
+                document.getElementById('status').innerHTML = `GeoJSON loaded. Found ${data.features?.length || 0} features.`;
+                
+                if (!data.features || data.features.length === 0) {
+                    document.getElementById('status').innerHTML = 'ERROR: No features found in GeoJSON file';
+                    return;
+                }
+
+                // Check first feature's coordinates
+                var firstCoords = data.features[0]?.geometry?.coordinates;
+                document.getElementById('status').innerHTML += `<br>First feature coordinates: ${JSON.stringify(firstCoords)}`;
+                
+                // Check if coordinates are within Australia (approx)
+                if (firstCoords && (firstCoords[0] < 100 || firstCoords[0] > 160 || firstCoords[1] < -45 || firstCoords[1] > -5)) {
+                    document.getElementById('status').innerHTML += '<br>⚠️ WARNING: Coordinates look unusual. Check your CRS (should be EPSG:4326 with longitudes ~140-155, latitudes ~-40 to -10 for Australia)';
+                }
+
+                var layer = L.geoJSON(data, {
                     onEachFeature: function(feature, layer) {
                         if (feature.properties) {
                             var popupContent = "<b>Common Name:</b> " + (feature.properties.Common_nam || 'N/A') + "<br>" +
@@ -49,9 +74,20 @@
                     }
                 }).addTo(map);
                 
-                document.getElementById('legend').innerHTML = "<b>Legend</b><br>🔵 Frog observation<br>Click marker for details";
+                map.fitBounds(layer.getBounds());
+                document.getElementById('status').innerHTML += `<br>✅ Added ${data.features.length} points to map. Map zoomed to fit all points.`;
+                document.getElementById('legend').innerHTML = "<b>Legend</b><br>🔵 Frog observation (" + data.features.length + " points)<br>Click any marker for details";
             })
-            .catch(error => console.error('Error loading GeoJSON:', error));
+            .catch(error => {
+                document.getElementById('status').innerHTML = `❌ ERROR: ${error.message}<br><br>Check: 
+                <ul>
+                    <li>Is frog_census.geojson in the same folder as this HTML file?</li>
+                    <li>Is the filename spelled exactly "frog_census.geojson"?</li>
+                    <li>Did you upload the GeoJSON file to GitHub?</li>
+                    <li>Try visiting: YOUR_GITHUB_URL/frog_census.geojson directly to see if it loads</li>
+                </ul>`;
+                console.error('Error:', error);
+            });
     </script>
 </body>
 </html>
